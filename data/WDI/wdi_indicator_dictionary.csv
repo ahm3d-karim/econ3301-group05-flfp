@@ -1,0 +1,8 @@
+code,name_from_world_bank_api
+SL.TLF.CACT.FE.ZS,"Labor force participation rate, female (% of female population ages 15+) (modeled ILO estimate)"
+NY.GDP.PCAP.PP.KD,"GDP per capita, PPP (constant 2021 international $)"
+NV.AGR.TOTL.ZS,"Agriculture, forestry, and fishing, value added (% of GDP)"
+NV.SRV.TOTL.ZS,"Services, value added (% of GDP)"
+SP.DYN.TFRT.IN,"Fertility rate, total (births per woman)"
+SE.SEC.ENRR.FE,"School enrollment, secondary, female (% gross)"
+SP.URB.TOTL.IN.ZS,Urban population (% of total population)
