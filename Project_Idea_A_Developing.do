@@ -2,19 +2,25 @@
 * ECON 3301 - Data Analytics Lab II - Final Project (Group 05)
 * Narrowed version: is female labour force participation U-shaped in income
 *                   AMONG DEVELOPING COUNTRIES, and where is Pakistan?
-* Data  : World Development Indicators (country-year panel, 1990-2022)
+* Data  : World Development Indicators (country-year panel, 1990-2022),
+*         downloaded from the World Bank when the file runs
 * Level : country-year
 *
 * Structure
 *   0. Setup
-*   1. Load and clean
-*   2. Data description and summary statistics
-*   3. Main regressions (developing countries)
-*   4. Robustness and comparison groups
-*   5. Turning point and Pakistan
-*   6. Figures
-*   7. Extensions: lagged income, historical income groups, female-to-male
+*   1. Download the data from the World Bank
+*   2. Clean and build the panel
+*   3. Data description and summary statistics
+*   4. Main regressions (developing countries)
+*   5. Robustness and comparison groups
+*   6. Turning point and Pakistan
+*   7. Figures
+*   8. Extensions: lagged income, historical income groups, female-to-male
 *      ratio and male participation, Pakistan against its region
+*
+* Navigation: each section starts with a "**#" line. In Stata's Do-file
+* Editor these are bookmarks: use the Navigation list at the top of the
+* editor to jump between sections.
 *
 * Headline model (d5): FLFP on log GDP per capita and its square, with country
 * and year fixed effects and NO controls (total association). The controls
@@ -26,17 +32,16 @@ clear all
 set more off
 capture log close
 
+**# 0. SETUP
 *------------------------------------------------------------------------------
 * 0. SETUP  (nothing to change: open the file and run it)
-*    The data are read straight from the project's GitHub repository, so the
-*    file runs on any computer with Stata and an internet connection.
-*    All outputs (log, tables, figures, cleaned panel) are saved in a folder
-*    called Output_Developing inside Stata's current working directory.
+*    The data are downloaded from the World Bank when the file runs, so it
+*    works on any computer with Stata and an internet connection.
+*    Two folders are created inside Stata's current working directory:
+*      Data_Raw           the downloaded World Bank files and the raw panel
+*      Output_Developing  log, tables, figures and the cleaned panel
 *    Repository: https://github.com/lrs-tech/econ3301-group05-flfp
 *------------------------------------------------------------------------------
-global repo  "https://raw.githubusercontent.com/lrs-tech/econ3301-group05-flfp/main/data"
-global wdi   "$repo/WDI"
-global extra "$repo/WB_extra"
 global out   "`c(pwd)'/Output_Developing"
 capture mkdir "$out"
 di "Outputs will be saved in: $out"
@@ -49,40 +54,134 @@ if _rc ssc install estout, replace
 capture which coefplot
 if _rc ssc install coefplot, replace
 
+**# 1. DOWNLOAD THE DATA FROM THE WORLD BANK
 *------------------------------------------------------------------------------
-* 1. LOAD AND CLEAN
+* 1. DOWNLOAD THE DATA FROM THE WORLD BANK
+*    Each WDI indicator is downloaded from the World Bank's data API as a zip
+*    file. The zip holds three CSV files:
+*      API_<code>_....csv                 the data: one row per country, one
+*                                         column per year (1960 onwards)
+*      Metadata_Country_API_<code>_....csv each country's region and current
+*                                         income group (blank for aggregates
+*                                         such as "World" or "South Asia")
+*      Metadata_Indicator_API_<code>_....csv the indicator's definition
+*    The World Bank's historical income groups come from its OGHIST.xlsx file.
+*    Raw files are kept in Data_Raw so you can open and check them.
 *------------------------------------------------------------------------------
-* World Bank income groups (current classification) and regions
-import delimited "$wdi/wdi_country_income_groups.csv", clear varnames(1) ///
-    stringcols(_all)
-keep countrycode income_level_code income_level region
+global raw "`c(pwd)'/Data_Raw"
+capture mkdir "$raw"
+local home "`c(pwd)'"
+
+* WDI indicators used in the project, and the short name each one gets
+local codes  SL.TLF.CACT.FE.ZS NY.GDP.PCAP.PP.KD NV.AGR.TOTL.ZS NV.SRV.TOTL.ZS ///
+             SP.DYN.TFRT.IN SE.SEC.ENRR.FE SP.URB.TOTL.IN.ZS                  ///
+             SL.TLF.CACT.FM.ZS SL.TLF.CACT.MA.ZS
+local names  flfp gdppc agri serv fert sec_enr urban fm_ratio flfp_male
+
+local i = 0
+foreach code of local codes {
+    local ++i
+    local name : word `i' of `names'
+    di as text _n "Downloading `code' (`name') ..."
+
+    * Download and unzip into its own folder
+    capture mkdir "$raw/`code'"
+    copy "https://api.worldbank.org/v2/en/indicator/`code'?downloadformat=csv" ///
+         "$raw/`code'/`code'.zip", replace
+    quietly cd "$raw/`code'"
+    unzipfile "`code'.zip", replace
+    quietly cd "`home'"
+
+    * The data file's name ends in a version number, so look it up
+    local f : dir "$raw/`code'" files "API_*.csv"
+    local f = subinstr(`"`f'"', `"""', "", .)
+
+    * Lines 1-4 are a short header (source, last updated); line 5 has the
+    * variable names. Years become variables v5, v6, ... with the year as
+    * their label, so we rename them yr1960, yr1961, ...
+    import delimited "$raw/`code'/`f'", varnames(5) rowrange(6) clear ///
+        encoding(utf-8) stringcols(1 2 3 4) asdouble
+    foreach v of varlist _all {
+        local lab : variable label `v'
+        if regexm("`lab'", "^[12][0-9][0-9][0-9]$") rename `v' yr`lab'
+    }
+    keep countrycode yr*
+
+    * Wide (one column per year) to long (one row per country-year)
+    reshape long yr, i(countrycode) j(year)
+    rename yr `name'
+    label var `name' "`code'"
+    tempfile d`i'
+    save `d`i''
+}
+
+* Region and current income group, from the metadata file of the first
+* indicator (the same list comes with every indicator)
+local f : dir "$raw/SL.TLF.CACT.FE.ZS" files "Metadata_Country_*.csv"
+local f = subinstr(`"`f'"', `"""', "", .)
+* (bindquote(strict): some country notes contain line breaks inside quotes)
+import delimited "$raw/SL.TLF.CACT.FE.ZS/`f'", varnames(1) clear ///
+    encoding(utf-8) stringcols(_all) bindquote(strict)
+rename (tablename incomegroup) (country income_level)
+keep countrycode country region income_level
+* Aggregates ("World", "South Asia", "High income", ...) have no income group
+drop if income_level == ""
+gen income_level_code = "LIC" if income_level == "Low income"
+replace income_level_code = "LMC" if income_level == "Lower middle income"
+replace income_level_code = "UMC" if income_level == "Upper middle income"
+replace income_level_code = "HIC" if income_level == "High income"
+assert income_level_code != ""
 tempfile groups
 save `groups'
 
-* Main panel: one row per country-year
-import delimited "$wdi/wdi_idea_a.csv", clear varnames(1)
+* Join the indicators into one country-year panel. Countries only (the
+* merge with the group list drops the regional and world aggregates).
+use `d1', clear
+forvalues j = 2/`i' {
+    merge 1:1 countrycode year using `d`j'', nogenerate
+}
+merge m:1 countrycode using `groups', keep(match) nogenerate
+order countrycode country year
+sort countrycode year
+save "$raw/wdi_panel_raw.dta", replace
 
-* Rename WDI codes to readable names
-rename sltlfcactfezs flfp      // SL.TLF.CACT.FE.ZS
-rename nygdppcapppkd gdppc     // NY.GDP.PCAP.PP.KD
-rename nvagrtotlzs   agri      // NV.AGR.TOTL.ZS
-rename nvsrvtotlzs   serv      // NV.SRV.TOTL.ZS
-rename spdyntfrtin   fert      // SP.DYN.TFRT.IN
-rename sesecenrrfe   sec_enr   // SE.SEC.ENRR.FE
-rename spurbtotlinzs urban     // SP.URB.TOTL.IN.ZS
+* Historical income groups: OGHIST.xlsx, sheet "Country Analytical History".
+* Rows 1-11 are titles and income thresholds; each row from 12 is a country;
+* column C is data year 1987, D is 1988, and so on. Cells hold L, LM, UM or
+* H; ".." means not classified that year.
+copy "https://datacatalogfiles.worldbank.org/ddh-published/0037712/DR0090754/OGHIST.xlsx" ///
+     "$raw/OGHIST.xlsx", replace
+import excel "$raw/OGHIST.xlsx", sheet("Country Analytical History") ///
+    cellrange(A12) allstring clear
+rename A countrycode
+keep if strlen(countrycode) == 3 & B != ""     // countries only, no notes
+drop B
+local y = 1987
+foreach v of varlist _all {
+    if "`v'" == "countrycode" continue
+    rename `v' g`y'
+    local ++y
+}
+reshape long g, i(countrycode) j(year)
+rename g wb_group
+replace wb_group = strtrim(wb_group)
+replace wb_group = "LM" if wb_group == "LM*"   // former Yemens combined
+replace wb_group = ""   if wb_group == ".."
+drop if wb_group == ""
+assert inlist(wb_group, "L", "LM", "UM", "H")
+save "$raw/wb_income_history.dta", replace
+
+**# 2. CLEAN AND BUILD THE PANEL
+*------------------------------------------------------------------------------
+* 2. CLEAN AND BUILD THE PANEL
+*------------------------------------------------------------------------------
+use "$raw/wdi_panel_raw.dta", clear
 
 * Sample window: 1990-2022 (later years have many missing values)
 keep if inrange(year, 1990, 2022)
 
-* Merge income groups
-merge m:1 countrycode using `groups'
-tab _merge
-drop if _merge == 2          // groups with no data in the panel
-* Every remaining row must be a country with an income group. Regional and
-* world aggregates (e.g. "South Asia", "World") have no income group, so they
-* would show up as _merge == 1 and break this check.
-assert _merge == 3
-drop _merge
+* Checks: one row per country-year, and every country has an income group
+isid countrycode year
 assert !missing(income_level)
 
 * Variable labels
@@ -93,6 +192,8 @@ label var serv    "Services, % of GDP"
 label var fert    "Fertility rate (births per woman)"
 label var sec_enr "Female secondary enrolment (gross, %)"
 label var urban   "Urban population (%)"
+label var fm_ratio  "Female-to-male LFP ratio (%)"
+label var flfp_male "Male labour force participation (% of men 15+)"
 * Note: gross enrolment can exceed 100 (over-age and repeating students).
 * We leave it uncapped.
 
@@ -137,8 +238,9 @@ label var core    "FLFP and income observed"
 
 save "$out/panel_developing.dta", replace
 
+**# 3. DATA DESCRIPTION AND SUMMARY STATISTICS
 *------------------------------------------------------------------------------
-* 2. DATA DESCRIPTION AND SUMMARY STATISTICS
+* 3. DATA DESCRIPTION AND SUMMARY STATISTICS
 *------------------------------------------------------------------------------
 * How many countries and country-years in each sample?
 foreach s in "core" "insamp" {
@@ -164,8 +266,9 @@ esttab using "$out/T1_summary_dev.rtf", replace ///
 tabstat flfp gdppc agri serv fert if core & dev, by(income_level) ///
     stat(n mean sd) format(%9.2f)
 
+**# 4. MAIN REGRESSIONS
 *------------------------------------------------------------------------------
-* 3. MAIN REGRESSIONS (developing countries, common complete-case sample)
+* 4. MAIN REGRESSIONS (developing countries, common complete-case sample)
 *    U-shape  <=>  coefficient on lgdp < 0 and on lgdp2 > 0
 *    Standard errors clustered by country throughout.
 *------------------------------------------------------------------------------
@@ -228,10 +331,11 @@ foreach m in d2 d5 d6 {
           (turning_gdppc: exp(-_b[lgdp]/(2*_b[lgdp2])))
 }
 
+**# 5. ROBUSTNESS AND COMPARISON GROUPS
 *------------------------------------------------------------------------------
-* 4. ROBUSTNESS AND COMPARISON GROUPS (all country + year FE)
+* 5. ROBUSTNESS AND COMPARISON GROUPS (all country + year FE)
 *------------------------------------------------------------------------------
-* (main models d1-d6 stay stored: the figures in section 6 use them)
+* (main models d1-d6 stay stored: the figures in section 7 use them)
 * (r1) Larger sample: drop enrolment (the control with the most gaps), keep
 *      the other controls
 eststo r1: xtreg flfp lgdp lgdp2 agri serv fert urban i.year if insamp2 & dev, ///
@@ -289,8 +393,9 @@ esttab f1 f2 using "$out/T4_flexible_dev.rtf", replace b(3) se(3) ///
     mtitles("Cubic" "Income bins") ///
     title("Flexible-form checks: developing countries (country + year FE)")
 
+**# 6. TURNING POINT AND PAKISTAN
 *------------------------------------------------------------------------------
-* 5. TURNING POINT AND PAKISTAN
+* 6. TURNING POINT AND PAKISTAN
 *------------------------------------------------------------------------------
 * Turning point from the headline model
 quietly xtreg flfp lgdp lgdp2 i.year if insamp & dev, fe vce(cluster cid)
@@ -336,8 +441,9 @@ preserve
     di "Pakistan's rank from the bottom: " r(mean) " of `n22'"
 restore
 
+**# 7. FIGURES
 *------------------------------------------------------------------------------
-* 6. FIGURES (all developing countries unless stated)
+* 7. FIGURES (all developing countries unless stated)
 *------------------------------------------------------------------------------
 * F1: raw data with a quadratic fit and the turning point
 twoway (scatter flfp lgdp if core & dev, msize(tiny) mcolor(gs10%40)) ///
@@ -478,33 +584,25 @@ preserve
     graph export "$out/F10_share_below_dev.png", replace width(1600)
 restore
 
+**# 8. EXTENSIONS
 *------------------------------------------------------------------------------
-* 7. EXTENSIONS
+* 8. EXTENSIONS
 *    (a) Lagged income        reverse causality: women's work also raises GDP
 *    (b) Historical WB groups today's list selects on growth; $20k is arbitrary
 *    (c) Female-to-male ratio and male participation: is the U about women?
 *    (d) Pakistan against its region: is the gap regional or Pakistan-specific?
-*    Extra data (World Bank), in data/WB_extra in the repository:
-*      wdi_extra_lfp.csv     SL.TLF.CACT.FM.ZS (F/M LFP ratio, %) and
-*                            SL.TLF.CACT.MA.ZS (male LFP, %), WDI API, 1990-2022
-*      wb_income_history.csv OGHIST.xlsx "Country Analytical History": WB income
+*    Extra data (World Bank, downloaded in section 1):
+*      fm_ratio, flfp_male   SL.TLF.CACT.FM.ZS (F/M LFP ratio, %) and
+*                            SL.TLF.CACT.MA.ZS (male LFP, %), already in the panel
+*      wb_income_history.dta OGHIST.xlsx "Country Analytical History": WB income
 *                            group of each country in each data year
 *    All models: country + year FE, no controls (as in d5), clustered SEs.
 *------------------------------------------------------------------------------
 
-import delimited "$extra/wdi_extra_lfp.csv", clear varnames(1)
-tempfile lfpextra
-save `lfpextra'
-import delimited "$extra/wb_income_history.csv", clear varnames(1) stringcols(1 3)
-tempfile hist
-save `hist'
-
-* Start again from the clean panel saved in section 1 (stored models are kept)
+* Start again from the clean panel saved in section 2 (stored models are kept)
 use "$out/panel_developing.dta", clear
-merge 1:1 countrycode year using `lfpextra', keep(master match) nogenerate
-merge 1:1 countrycode year using `hist',     keep(master match) nogenerate
-label var fm_ratio  "Female-to-male LFP ratio (%)"
-label var flfp_male "Male labour force participation (% of men 15+)"
+merge 1:1 countrycode year using "$raw/wb_income_history.dta", ///
+    keep(master match) nogenerate
 xtset cid year
 
 * (b) Developing by the World Bank's own historical classification
@@ -641,5 +739,6 @@ twoway (scatter flfp lgdp if core & dev, msize(tiny) mcolor(gs12%40)) ///
 graph export "$out/F13_pakistan_path.png", replace width(1600)
 drop yrlab
 
+**# End
 *------------------------------------------------------------------------------
 log close

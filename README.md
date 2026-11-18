@@ -9,18 +9,24 @@ We test whether female labour force participation is U-shaped in GDP per capita 
 1. Download `Project_Idea_A_Developing.do` and open it in Stata (we used Stata 18).
 2. Run it. You don't need to change anything.
 
-The do-file reads the data straight from this repository, so you need an internet connection. It installs `estout` and `coefplot` from SSC if you don't already have them. It takes about two minutes to run.
+The do-file downloads the data itself from the World Bank, cleans it, and then runs the analysis, so you need an internet connection. It installs `estout` and `coefplot` from SSC if you don't already have them. It takes about three minutes to run.
 
-Outputs are saved in a new folder called `Output_Developing`, inside Stata's current working directory. That folder holds the log, tables T1-T5 (.rtf), figures F1-F13 (.png) and the cleaned panel (.dta).
+Two folders are created inside Stata's current working directory:
+
+- `Data_Raw`: the downloaded World Bank files (one zip per WDI indicator, OGHIST.xlsx) and the raw panel before cleaning.
+- `Output_Developing`: the log, tables T1-T5 (.rtf), figures F1-F13 (.png) and the cleaned panel (.dta).
+
+Each section of the do-file starts with a `**#` line. Stata's Do-file Editor shows these as bookmarks in its Navigation list, so you can jump between sections.
 
 ## Data
 
-| File | Contents |
+The do-file downloads these from the World Bank:
+
+| Source | What we use |
 |---|---|
-| `data/WDI/wdi_idea_a.csv` | Main country-year panel: female LFP, GDP per capita (PPP), agriculture and services shares, fertility, female secondary enrolment, urban share |
-| `data/WDI/wdi_country_income_groups.csv` | Current World Bank income group and region of each country |
-| `data/WDI/wdi_indicator_dictionary.csv` | WDI indicator codes and names |
-| `data/WB_extra/wdi_extra_lfp.csv` | Male LFP and the female-to-male LFP ratio (WDI) |
-| `data/WB_extra/wb_income_history.csv` | Historical World Bank income group of each country in each year (from the World Bank's OGHIST file) |
+| World Development Indicators (data API, one zip per indicator) | Female LFP (SL.TLF.CACT.FE.ZS), GDP per capita PPP (NY.GDP.PCAP.PP.KD), agriculture and services shares (NV.AGR.TOTL.ZS, NV.SRV.TOTL.ZS), fertility (SP.DYN.TFRT.IN), female secondary enrolment (SE.SEC.ENRR.FE), urban share (SP.URB.TOTL.IN.ZS), female-to-male LFP ratio (SL.TLF.CACT.FM.ZS), male LFP (SL.TLF.CACT.MA.ZS); plus each country's region and current income group |
+| World Bank historical income classification (OGHIST.xlsx) | Each country's income group in each year |
+
+The `data` folder holds the copy of the data we used for our slides and brief, for reference. The do-file does not need it. The World Bank revises its data from time to time, so a later download may give slightly different numbers.
 
 Source: World Bank, World Development Indicators and the World Bank's historical income classification. Both are licensed CC BY 4.0.
