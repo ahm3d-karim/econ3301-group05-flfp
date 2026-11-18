@@ -40,7 +40,7 @@ capture log close
 *    Two folders are created inside Stata's current working directory:
 *      Data_Raw           the downloaded World Bank files and the raw panel
 *      Output_Developing  log, tables, figures and the cleaned panel
-*    Repository: https://github.com/lrs-tech/econ3301-group05-flfp
+*    Repository: https://github.com/ahm3d-karim/econ3301-group05-flfp
 *------------------------------------------------------------------------------
 global out   "`c(pwd)'/Output_Developing"
 capture mkdir "$out"
